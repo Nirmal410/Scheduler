@@ -1,49 +1,95 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
-
-# compiled output
-dist
-tmp
-out-tsc
+# ==========================================
+# Node / Frontend / Dependencies
+# ==========================================
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.output/
+.cache/
+.local/
+.expo/
+.expo-shared/
 *.tsbuildinfo
-.expo
-.expo-shared
+out-tsc
 
-# dependencies
-node_modules
+# Logs & Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+testem.log
+/libpeerconnection.log
 
-# IDEs and editors
-/.idea
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# Java / Spring Boot / Maven
+# ==========================================
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Application properties & config secrets
+application.properties
+application-*.properties
+application.yml
+application-*.yml
+application.yaml
+application-*.yaml
+**/application.properties
+**/application-*.properties
+**/application.yml
+**/application-*.yml
+**/application.yaml
+**/application-*.yaml
+
+# Allow example config files to be committed
+!application.properties.example
+!**/application.properties.example
+!application*.example.properties
+!**/application*.example.properties
+!application*.example.yml
+!**/application*.example.yml
+!application*.example.yaml
+!**/application*.example.yaml
+
+# ==========================================
+# IDEs and Editors
+# ==========================================
+.idea/
+*.iml
 .project
 .classpath
 .c9/
 *.launch
 .settings/
 *.sublime-workspace
-
-# IDE - VSCode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# misc
-/.sass-cache
-/connect.lock
-/coverage
-/libpeerconnection.log
-npm-debug.log
-yarn-error.log
-testem.log
-/typings
-
-# System Files
+# ==========================================
+# System / OS Files
+# ==========================================
 .DS_Store
 Thumbs.db
-
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
-
-# Replit
-.cache/
-.local/
