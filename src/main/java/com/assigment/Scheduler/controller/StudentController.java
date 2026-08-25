@@ -1,9 +1,10 @@
 package com.assigment.Scheduler.controller;
 
-import com.assigment.Scheduler.entity.Student;
-import com.assigment.Scheduler.repository.StudentRepository;
+import com.assigment.Scheduler.entity.*;
+import com.assigment.Scheduler.repository.*;
 import com.assigment.Scheduler.service.StudentImportService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.*;
@@ -15,10 +16,24 @@ import java.util.*;
 public class StudentController {
     private final StudentRepository repository;
     private final StudentImportService importService;
+    private final InterviewRepository interviewRepository;
+    private final ShortlistRepository shortlistRepository;
+    private final DisruptionRepository disruptionRepository;
+    private final ReplanLogRepository replanLogRepository;
 
-    public StudentController(StudentRepository repository, StudentImportService importService) {
+    public StudentController(
+            StudentRepository repository,
+            StudentImportService importService,
+            InterviewRepository interviewRepository,
+            ShortlistRepository shortlistRepository,
+            DisruptionRepository disruptionRepository,
+            ReplanLogRepository replanLogRepository) {
         this.repository = repository;
         this.importService = importService;
+        this.interviewRepository = interviewRepository;
+        this.shortlistRepository = shortlistRepository;
+        this.disruptionRepository = disruptionRepository;
+        this.replanLogRepository = replanLogRepository;
     }
 
     @GetMapping
@@ -31,32 +46,50 @@ public class StudentController {
         if (s.getWithdrawn() == null) {
             s.setWithdrawn(false);
         }
-        if (s.getId() != null) {
-            Optional<Student> existingOpt = repository.findById(s.getId());
-            if (existingOpt.isPresent()) {
-                Student existing = existingOpt.get();
-                if (s.getName() != null) existing.setName(s.getName());
-                if (s.getBranch() != null) existing.setBranch(s.getBranch());
-                if (s.getCgpa() != null) existing.setCgpa(s.getCgpa());
-                if (s.getWithdrawn() != null) existing.setWithdrawn(s.getWithdrawn());
-                return ResponseEntity.ok(repository.save(existing));
-            }
-        }
-        Student newStudent = new Student();
-        newStudent.setName(s.getName());
-        newStudent.setBranch(s.getBranch());
-        newStudent.setCgpa(s.getCgpa());
-        newStudent.setWithdrawn(s.getWithdrawn());
-        return ResponseEntity.ok(repository.save(newStudent));
+        Student saved = importService.saveStudentSafely(s);
+        return ResponseEntity.ok(saved);
     }
 
+    @Transactional
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteStudent(@PathVariable Long id) {
-        if (repository.existsById(id)) {
-            repository.deleteById(id);
-            return ResponseEntity.ok().build();
+        if (!repository.existsById(id)) {
+            return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.notFound().build();
+
+        // 1. Delete associated interviews and their replan logs
+        List<Interview> ivs = interviewRepository.findByStudentId(id);
+        if (!ivs.isEmpty()) {
+            List<ReplanLog> replanLogs = replanLogRepository.findByInterviewIn(ivs);
+            if (!replanLogs.isEmpty()) {
+                replanLogRepository.deleteAll(replanLogs);
+            }
+            interviewRepository.deleteAll(ivs);
+        }
+
+        // 2. Delete associated shortlists
+        List<Shortlist> sls = shortlistRepository.findByStudentId(id);
+        if (!sls.isEmpty()) {
+            shortlistRepository.deleteAll(sls);
+        }
+
+        // 3. Delete associated disruptions and their replan logs
+        try {
+            List<Disruption> disruptions = disruptionRepository.findAll().stream()
+                    .filter(d -> id.equals(d.getTargetEntityId()) && d.getType() == DisruptionType.STUDENT_WITHDRAW)
+                    .toList();
+            for (Disruption d : disruptions) {
+                List<ReplanLog> disruptionLogs = replanLogRepository.findByDisruptionId(d.getId());
+                if (!disruptionLogs.isEmpty()) {
+                    replanLogRepository.deleteAll(disruptionLogs);
+                }
+                disruptionRepository.delete(d);
+            }
+        } catch (Exception ignored) {}
+
+        // 4. Delete student
+        repository.deleteById(id);
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping(value = "/import", consumes = "multipart/form-data")

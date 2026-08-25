@@ -15,11 +15,13 @@ public class ShortlistController {
     private final ShortlistRepository shortlists;
     private final CompanyRepository companies;
     private final StudentRepository students;
+    private final PanelRepository panels;
 
-    public ShortlistController(ShortlistRepository s, CompanyRepository c, StudentRepository st) {
+    public ShortlistController(ShortlistRepository s, CompanyRepository c, StudentRepository st, PanelRepository p) {
         shortlists = s;
         companies = c;
         students = st;
+        panels = p;
     }
 
     @GetMapping
@@ -101,14 +103,13 @@ public class ShortlistController {
                 }
                 try {
                     Company c = findCompany(p[0].trim());
-                    String studentIdClean = p[1].trim().replaceAll("[^0-9]", "");
-                    Student s = studentIdClean.isEmpty() ? null : students.findById(Long.valueOf(studentIdClean)).orElse(null);
+                    Student s = findStudent(p[1].trim());
                     int rank = Integer.parseInt(p[2].trim().replaceAll("[^0-9]", ""));
                     String reason = null;
                     if (c == null)
                         reason = "Company '" + p[0] + "' not found in database";
                     else if (s == null)
-                        reason = "Student ID '" + p[1] + "' not found in database";
+                        reason = "Student ID/Name '" + p[1] + "' not found in database";
                     else if (Boolean.TRUE.equals(s.getWithdrawn()))
                         reason = "Student " + s.getName() + " is withdrawn";
                     else if (s.getCgpa() < c.getCgpaCutoff())
@@ -133,13 +134,88 @@ public class ShortlistController {
     }
 
     private Company findCompany(String ref) {
+        if (ref == null || ref.isBlank()) return null;
+        String cleanRef = ref.trim();
+
+        // 1. Try lookup by numeric ID
         try {
-            Optional<Company> byId = companies.findById(Long.valueOf(ref));
+            Optional<Company> byId = companies.findById(Long.valueOf(cleanRef));
             if (byId.isPresent())
                 return byId.get();
         } catch (Exception ignored) {
         }
-        return companies.findAll().stream().filter(c -> c.getName().equalsIgnoreCase(ref)).findFirst().orElse(null);
+
+        List<Company> all = companies.findAll();
+
+        // 2. Exact match case-insensitive
+        Optional<Company> exact = all.stream()
+                .filter(c -> c.getName() != null && c.getName().trim().equalsIgnoreCase(cleanRef))
+                .findFirst();
+        if (exact.isPresent()) return exact.get();
+
+        // 3. Normalized match (stripping common terms like IDC, Inc, Corp, India, etc.)
+        String normRef = normalizeCompanyName(cleanRef);
+        if (!normRef.isEmpty()) {
+            Optional<Company> normMatch = all.stream()
+                    .filter(c -> c.getName() != null && normalizeCompanyName(c.getName()).equalsIgnoreCase(normRef))
+                    .findFirst();
+            if (normMatch.isPresent()) return normMatch.get();
+
+            // 4. Substring / Containment match
+            Optional<Company> containsMatch = all.stream()
+                    .filter(c -> {
+                        if (c.getName() == null) return false;
+                        String cn = c.getName().toLowerCase();
+                        String r = cleanRef.toLowerCase();
+                        return cn.contains(r) || r.contains(cn) || cn.startsWith(r) || r.startsWith(cn);
+                    })
+                    .findFirst();
+            if (containsMatch.isPresent()) return containsMatch.get();
+        }
+
+        // 5. Auto-create company if missing
+        try {
+            Company newCompany = new Company();
+            newCompany.setName(cleanRef);
+            newCompany.setTier(CompanyTier.CORE);
+            newCompany.setArrivalDay(1);
+            newCompany.setCgpaCutoff(6.0);
+            newCompany.setMaxPanels(1);
+            newCompany.setRequiredPanels(1);
+            newCompany.setInterviewDurationMinutes(45);
+            Company saved = companies.save(newCompany);
+
+            Panel p = new Panel("Panel 1 (" + saved.getName() + ")", saved, "Interviewer 1, Interviewer 2");
+            p.setMemberCount(2);
+            panels.save(p);
+
+            return saved;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Student findStudent(String ref) {
+        if (ref == null || ref.isBlank()) return null;
+        String cleanRef = ref.trim();
+        String numericId = cleanRef.replaceAll("[^0-9]", "");
+        if (!numericId.isEmpty()) {
+            try {
+                Optional<Student> sOpt = students.findById(Long.valueOf(numericId));
+                if (sOpt.isPresent()) return sOpt.get();
+            } catch (Exception ignored) {}
+        }
+        return students.findAll().stream()
+                .filter(st -> st.getName() != null && st.getName().trim().equalsIgnoreCase(cleanRef))
+                .findFirst().orElse(null);
+    }
+
+    private String normalizeCompanyName(String name) {
+        if (name == null) return "";
+        return name.toLowerCase()
+                .replaceAll("(?i)\\b(inc|corp|corporation|ltd|limited|pvt|private|india|idc|development|center|tech|technologies|gds|global|services|solutions)\\b", "")
+                .replaceAll("[^a-z0-9]", "")
+                .trim();
     }
 
     private boolean branchAllowed(String configured, String branch) {
